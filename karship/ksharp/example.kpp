@@ -1,0 +1,16 @@
+# Karship K# database + SDK demo
+memory.set_mode("eco")
+let conn = db.open(":memory:")
+conn.exec("create table users(name text, role text)")
+conn.exec("insert into users(name, role) values(?, ?)", ["Alice", "Developer"])
+conn.exec("insert into users(name, role) values(?, ?)", ["Bob", "Security Engineer"])
+
+let rows = conn.query("select name, role from users order by name asc")
+spark("First user:", rows[0]["name"], "-", rows[0]["role"])
+
+let payload = sdk.to_json(rows)
+spark("JSON payload:")
+spark(payload)
+spark("Memory mode:", memory.mode(), "Allocated:", memory.profile()["allocated_mb"], "MB")
+
+conn.close()

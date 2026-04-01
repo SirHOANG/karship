@@ -1,0 +1,33 @@
+<svg width="640" height="320" viewBox="0 0 640 320" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1f1026"/>
+      <stop offset="100%" stop-color="#09080f"/>
+    </linearGradient>
+    <linearGradient id="pink" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#ff79c6"/>
+      <stop offset="100%" stop-color="#ff3d9a"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="3.2" result="b"/>
+      <feMerge>
+        <feMergeNode in="b"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <rect width="640" height="320" rx="26" fill="url(#bg)"/>
+
+  <g transform="translate(86,44)" filter="url(#glow)" fill="url(#pink)">
+    <path d="M0 0h42v98l82-98h51l-98 110 108 166h-50l-87-136-6 7v129H0V0z"/>
+    <rect x="235" y="86" width="34" height="106" rx="8"/>
+    <rect x="280" y="86" width="34" height="106" rx="8"/>
+    <rect x="212" y="114" width="124" height="31" rx="8"/>
+    <rect x="212" y="160" width="124" height="31" rx="8"/>
+  </g>
+
+  <text x="375" y="125" fill="#f7d7e9" font-family="Segoe UI, Arial, sans-serif" font-size="54" font-weight="700">Karship</text>
+  <text x="377" y="170" fill="#ff79c6" font-family="Consolas, monospace" font-size="37" font-weight="700">K#</text>
+  <text x="378" y="212" fill="#baa9c3" font-family="Segoe UI, Arial, sans-serif" font-size="20">secure • modern • creator-first</text>
+</svg>
