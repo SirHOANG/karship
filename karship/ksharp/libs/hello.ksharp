@@ -1,0 +1,8 @@
+# Shared Karship library example
+forge hello(name) {
+    return "Hello, " + name + " from hello.ksharp"
+}
+
+forge secure_banner() {
+    return security.white_hat_only()
+}

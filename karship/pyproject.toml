@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "karship-ksharp"
+version = "0.1.0"
+description = "Karship K# reference interpreter and tooling."
+readme = "ksharp/README.md"
+requires-python = ">=3.11"
+authors = [
+  { name = "Karship Team" }
+]
+license = { text = "MIT" }
+keywords = ["karship", "ksharp", "language", "interpreter", "k#"]
+dependencies = []
+
+[project.scripts]
+ksharp = "ksharp.ksharp_cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["ksharp*"]
