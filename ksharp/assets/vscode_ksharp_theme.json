@@ -1,0 +1,28 @@
+{
+  "name": "Karship K# Pink Keywords",
+  "type": "dark",
+  "colors": {
+    "editor.background": "#0e0a14",
+    "editor.foreground": "#f5e9f0"
+  },
+  "tokenColors": [
+    {
+      "name": "K# Keywords",
+      "scope": [
+        "keyword.control.ksharp",
+        "keyword.other.ksharp"
+      ],
+      "settings": {
+        "foreground": "#ff4fa3",
+        "fontStyle": "bold"
+      }
+    },
+    {
+      "name": "K# Strings",
+      "scope": "string.quoted.ksharp",
+      "settings": {
+        "foreground": "#ffd3ec"
+      }
+    }
+  ]
+}

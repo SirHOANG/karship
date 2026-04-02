@@ -1,0 +1,47 @@
+{
+  "name": "karship-vscode",
+  "displayName": "Karship Language Support",
+  "description": "Language support and file icons for Karship (.ksharp, .kpp, .k).",
+  "version": "0.1.0",
+  "publisher": "karship",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Themes"
+  ],
+  "icon": "./icons/ksharp.png",
+  "contributes": {
+    "languages": [
+      {
+        "id": "karship",
+        "aliases": [
+          "Karship",
+          "karship",
+          "K#"
+        ],
+        "extensions": [
+          ".ksharp",
+          ".kpp",
+          ".k"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "karship",
+        "scopeName": "source.karship",
+        "path": "./syntaxes/karship.tmLanguage.json"
+      }
+    ],
+    "iconThemes": [
+      {
+        "id": "karship-icons",
+        "label": "Karship Icons",
+        "path": "./icons/theme.json"
+      }
+    ]
+  }
+}

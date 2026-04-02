@@ -1,0 +1,25 @@
+# Karship K# library + memory + core features
+use "libs/hello.ksharp"
+
+let language = "Karship K#"
+spark("Welcome to", language)
+spark(hello("developer"))
+spark(secure_banner())
+
+let profile = memory.profile()
+spark("Auto memory mode:", profile["mode"], "RAM:", profile["total_ram_gb"], "GB")
+memory.alloc("compiler-cache", 16)
+spark("Reserved MB:", memory.profile()["allocated_mb"])
+memory.free("compiler-cache")
+
+forge power(base, exp) {
+    let result = 1
+    each i in range(0, exp) {
+        result = result * base
+    }
+    return result
+}
+
+spark("2^8 =", power(2, 8))
+spark("Ethical mode:", security.white_hat_only())
+spark("SHA256:", security.hash("white-hat"))

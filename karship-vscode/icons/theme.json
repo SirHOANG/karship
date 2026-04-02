@@ -1,0 +1,22 @@
+{
+  "extends": "vs-seti",
+  "iconDefinitions": {
+    "_ksharp": {
+      "iconPath": "./ksharp.png"
+    },
+    "_kpp": {
+      "iconPath": "./kpp.png"
+    },
+    "_k": {
+      "iconPath": "./k.png"
+    }
+  },
+  "fileExtensions": {
+    "ksharp": "_ksharp",
+    "kpp": "_kpp",
+    "k": "_k"
+  },
+  "languageIds": {
+    "karship": "_ksharp"
+  }
+}
