@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from .ksharp_interpreter import (
     ExecutionResult,
     KSharpError,
@@ -8,10 +10,7 @@ from .ksharp_interpreter import (
 )
 from .runtime import Interpreter
 
-__version__ = "0.1.0"
-
 __all__ = [
-    "__version__",
     "ExecutionResult",
     "KSharpError",
     "Interpreter",

@@ -41,6 +41,8 @@ spark("mode:", profile["mode"], "ram:", profile["total_ram_gb"], "GB")
 - `let`: mutable variable
 - `lock`: immutable variable (const-safe)
 - `forge`: function
+- `class` / `new`: object system
+- `lambda(a, b) => a + b`: lambda expression
 - `each ... in ...`: for-each loop
 - `memory.alloc(...)` / `memory.free(...)`: manual memory reservation lifecycle
 - `memory.profile()` / `memory.set_mode("eco"|"balanced"|"turbo")`: automatic + manual optimization
@@ -52,9 +54,9 @@ spark("mode:", profile["mode"], "ram:", profile["total_ram_gb"], "GB")
 
 K# runtime accepts all of these:
 
-- `.ksharp`
-- `.kpp`
-- `.k`
+- `.ksharp`: full language mode (strict safety + full feature set)
+- `.kpp`: performance mode (reduced safety checks for speed)
+- `.k`: lightweight scripting mode (imports/classes disabled, reduced runtime surface)
 
 Examples are included:
 
@@ -77,6 +79,7 @@ Or install command entrypoint:
 ```bash
 pip install -e .
 ksharp ksharp/example.ksharp
+kar --version
 ```
 
 Memory profiles in CLI:
@@ -86,6 +89,22 @@ ksharp --memory-mode auto ksharp/example.ksharp
 ksharp --memory-mode eco ksharp/example.kpp
 ksharp --memory-mode turbo ksharp/example.k
 ```
+
+## Kar Ecosystem CLI
+
+Karship now includes a project/workflow CLI:
+
+```bash
+kar init .
+kar run main.ksharp
+kar build
+kar mem
+kar doctor
+kar install discord.py
+kar remove discord.py
+```
+
+`kar install/remove` supports local project dependencies (tracked in `karship.json`) and global mode via `--global`.
 
 ## Library Pattern
 

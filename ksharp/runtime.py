@@ -1,22 +1,29 @@
 from __future__ import annotations
 
-import ctypes
-import gc
-import hashlib
-import hmac
 import json
-import os
 import sqlite3
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
+from runtime.memory import MemoryManager, MemoryModule, MemoryRuntimeError
+from runtime.monitor import RuntimeMonitor
+from runtime.system_detection import HardwareProfile, SystemDetector
+
+from .modules import (
+    AntiCheatRuntimeModule,
+    DiscordRuntimeModule,
+    GameRuntimeModule,
+    SecurityRuntimeModule,
+    WebRuntimeModule,
+)
 from .ast_nodes import (
     Assign,
     Binary,
     BreakStmt,
     Call,
+    ClassDecl,
     ContinueStmt,
     EachStmt,
     Expr,
@@ -26,11 +33,14 @@ from .ast_nodes import (
     Grouping,
     IfStmt,
     IndexExpr,
+    LambdaExpr,
     ListLiteral,
     Literal,
     Logical,
+    NewExpr,
     Program,
     ReturnStmt,
+    SetExpr,
     SparkStmt,
     Stmt,
     Unary,
@@ -41,7 +51,6 @@ from .ast_nodes import (
 )
 
 MODULE_EXTENSIONS = (".ksharp", ".kpp", ".k")
-MB = 1024 * 1024
 
 
 class KSharpRuntimeError(Exception):
@@ -60,165 +69,6 @@ class BreakSignal(Exception):
 
 class ContinueSignal(Exception):
     pass
-
-
-class MemoryManager:
-    def __init__(self, preferred_mode: str | None = None) -> None:
-        self.total_bytes = self.detect_total_memory_bytes()
-        self.recommended_mode = self.recommend_mode(self.total_bytes)
-        self.mode = self.recommended_mode
-        self.allocations: dict[str, int] = {}
-        self.last_gc_collected = 0
-        if preferred_mode is not None:
-            self.set_mode(preferred_mode)
-        else:
-            self.cap_bytes = self.mode_cap_bytes(self.mode)
-
-    @staticmethod
-    def detect_total_memory_bytes() -> int:
-        if os.name == "nt":
-            class MEMORYSTATUSEX(ctypes.Structure):
-                _fields_ = [
-                    ("dwLength", ctypes.c_ulong),
-                    ("dwMemoryLoad", ctypes.c_ulong),
-                    ("ullTotalPhys", ctypes.c_ulonglong),
-                    ("ullAvailPhys", ctypes.c_ulonglong),
-                    ("ullTotalPageFile", ctypes.c_ulonglong),
-                    ("ullAvailPageFile", ctypes.c_ulonglong),
-                    ("ullTotalVirtual", ctypes.c_ulonglong),
-                    ("ullAvailVirtual", ctypes.c_ulonglong),
-                    ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
-                ]
-
-            stat = MEMORYSTATUSEX()
-            stat.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
-            if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat)):
-                return max(int(stat.ullTotalPhys), 1)
-
-        if hasattr(os, "sysconf"):
-            pages = os.sysconf("SC_PHYS_PAGES")
-            page_size = os.sysconf("SC_PAGE_SIZE")
-            if isinstance(pages, int) and isinstance(page_size, int) and pages > 0 and page_size > 0:
-                return pages * page_size
-
-        return 8 * 1024 * 1024 * 1024
-
-    @staticmethod
-    def recommend_mode(total_bytes: int) -> str:
-        total_gb = total_bytes / (1024**3)
-        if total_gb <= 8:
-            return "eco"
-        if total_gb <= 16:
-            return "balanced"
-        return "turbo"
-
-    def mode_cap_bytes(self, mode: str) -> int:
-        if mode == "eco":
-            return max(min(int(self.total_bytes * 0.18), 512 * MB), 64 * MB)
-        if mode == "balanced":
-            return max(min(int(self.total_bytes * 0.35), 2 * 1024 * MB), 128 * MB)
-        if mode == "turbo":
-            return max(min(int(self.total_bytes * 0.65), 8 * 1024 * MB), 256 * MB)
-        raise KSharpRuntimeError(
-            "Unknown memory mode. Use one of: eco, balanced, turbo."
-        )
-
-    def set_mode(self, mode: str) -> dict[str, Any]:
-        normalized = str(mode).strip().lower()
-        self.cap_bytes = self.mode_cap_bytes(normalized)
-        self.mode = normalized
-        return self.profile()
-
-    def auto_mode(self) -> dict[str, Any]:
-        self.mode = self.recommended_mode
-        self.cap_bytes = self.mode_cap_bytes(self.mode)
-        return self.profile()
-
-    def allocated_bytes(self) -> int:
-        return sum(self.allocations.values())
-
-    def alloc(self, name: Any, megabytes: Any) -> dict[str, Any]:
-        block = str(name).strip()
-        if not block:
-            raise KSharpRuntimeError("Memory block name cannot be empty.")
-        if block in self.allocations:
-            raise KSharpRuntimeError(f"Memory block '{block}' already exists.")
-
-        try:
-            size_mb = float(megabytes)
-        except Exception as exc:
-            raise KSharpRuntimeError("memory.alloc(name, mb) expects numeric mb.") from exc
-        if size_mb <= 0:
-            raise KSharpRuntimeError("Allocated size must be greater than 0 MB.")
-
-        size_bytes = int(size_mb * MB)
-        projected = self.allocated_bytes() + size_bytes
-        if projected > self.cap_bytes:
-            raise KSharpRuntimeError(
-                "Memory reservation exceeds current profile cap "
-                f"({self.cap_bytes / MB:.1f} MB). "
-                "Use memory.set_mode('turbo') on high-end PCs or reserve less on low-end PCs."
-            )
-
-        self.allocations[block] = size_bytes
-        return self.profile()
-
-    def free(self, name: Any) -> float:
-        block = str(name).strip()
-        if block not in self.allocations:
-            return 0.0
-        released = self.allocations.pop(block)
-        return round(released / MB, 3)
-
-    def free_all(self) -> float:
-        released = self.allocated_bytes()
-        self.allocations.clear()
-        return round(released / MB, 3)
-
-    def gc_collect(self) -> int:
-        self.last_gc_collected = gc.collect()
-        return self.last_gc_collected
-
-    def profile(self) -> dict[str, Any]:
-        total_gb = self.total_bytes / (1024**3)
-        return {
-            "total_ram_gb": round(total_gb, 2),
-            "mode": self.mode,
-            "recommended_mode": self.recommended_mode,
-            "cap_mb": round(self.cap_bytes / MB, 2),
-            "allocated_mb": round(self.allocated_bytes() / MB, 3),
-            "active_blocks": sorted(self.allocations.keys()),
-            "last_gc_collected": self.last_gc_collected,
-        }
-
-
-class MemoryModule:
-    def __init__(self, manager: MemoryManager) -> None:
-        self._manager = manager
-
-    def profile(self) -> dict[str, Any]:
-        return self._manager.profile()
-
-    def set_mode(self, mode: str) -> dict[str, Any]:
-        return self._manager.set_mode(mode)
-
-    def auto(self) -> dict[str, Any]:
-        return self._manager.auto_mode()
-
-    def alloc(self, name: str, megabytes: float) -> dict[str, Any]:
-        return self._manager.alloc(name, megabytes)
-
-    def free(self, name: str) -> float:
-        return self._manager.free(name)
-
-    def free_all(self) -> float:
-        return self._manager.free_all()
-
-    def gc(self) -> int:
-        return self._manager.gc_collect()
-
-    def mode(self) -> str:
-        return self._manager.mode
 
 
 class Environment:
@@ -269,35 +119,189 @@ class NativeFunction:
 class KSharpFunction:
     declaration: FunctionDecl
     closure: Environment
+    is_initializer: bool = False
+
+    def bind(self, instance: "KSharpInstance") -> "KSharpFunction":
+        method_env = Environment(parent=self.closure)
+        method_env.define("self", instance, is_const=True)
+        return KSharpFunction(
+            declaration=self.declaration,
+            closure=method_env,
+            is_initializer=self.is_initializer,
+        )
 
     def call(self, interpreter: "Interpreter", args: list[Any]) -> Any:
         if len(args) != len(self.declaration.params):
-            raise KSharpRuntimeError(
-                f"Function '{self.declaration.name}' expects {len(self.declaration.params)}"
-                f" args but got {len(args)}."
+            raise interpreter.runtime_error(
+                f"Function '{self.declaration.name}' expects {len(self.declaration.params)} "
+                f"args but got {len(args)}."
             )
+
         local_env = Environment(parent=self.closure)
         for param, value in zip(self.declaration.params, args, strict=True):
             local_env.define(param, value)
+
+        interpreter.push_call(self.declaration.name)
         try:
-            interpreter.execute_block(self.declaration.body, local_env)
-        except ReturnSignal as signal:
-            return signal.value
-        return None
+            return_value: Any = None
+            try:
+                interpreter.execute_block(self.declaration.body, local_env)
+            except ReturnSignal as signal:
+                return_value = signal.value
+
+            if self.is_initializer:
+                return self.closure.get("self")
+
+            if (
+                interpreter.strict_safety
+                and self.declaration.return_type is not None
+            ):
+                interpreter.enforce_return_type(
+                    self.declaration.name,
+                    self.declaration.return_type,
+                    return_value,
+                )
+            return return_value
+        finally:
+            interpreter.pop_call()
 
     def __repr__(self) -> str:
         return f"<forge {self.declaration.name}>"
 
 
-class SecurityModule:
-    def hash(self, text: Any) -> str:
-        return hashlib.sha256(str(text).encode("utf-8")).hexdigest()
+@dataclass(slots=True)
+class KSharpLambda:
+    params: list[str]
+    body: Expr
+    closure: Environment
 
-    def safe_equal(self, left: Any, right: Any) -> bool:
-        return hmac.compare_digest(str(left), str(right))
+    def call(self, interpreter: "Interpreter", args: list[Any]) -> Any:
+        if len(args) != len(self.params):
+            raise interpreter.runtime_error(
+                f"Lambda expects {len(self.params)} args but got {len(args)}."
+            )
 
-    def white_hat_only(self) -> str:
-        return "K# security mode: defensive and ethical use only."
+        local_env = Environment(parent=self.closure)
+        for param, value in zip(self.params, args, strict=True):
+            local_env.define(param, value)
+
+        interpreter.push_call("<lambda>")
+        try:
+            previous = interpreter.environment
+            try:
+                interpreter.environment = local_env
+                return interpreter.evaluate(self.body)
+            finally:
+                interpreter.environment = previous
+        finally:
+            interpreter.pop_call()
+
+    def __repr__(self) -> str:
+        return "<lambda>"
+
+
+@dataclass(slots=True)
+class KSharpClass:
+    name: str
+    methods: dict[str, KSharpFunction]
+
+    def find_method(self, name: str) -> KSharpFunction | None:
+        return self.methods.get(name)
+
+    def call(self, interpreter: "Interpreter", args: list[Any]) -> "KSharpInstance":
+        instance = KSharpInstance(self)
+        initializer = self.find_method("init")
+        if initializer is not None:
+            initializer.bind(instance).call(interpreter, args)
+        elif args and interpreter.strict_safety:
+            raise interpreter.runtime_error(
+                f"Class '{self.name}' has no init method but received constructor args."
+            )
+        return instance
+
+    def __repr__(self) -> str:
+        return f"<class {self.name}>"
+
+
+class KSharpInstance:
+    def __init__(self, klass: KSharpClass) -> None:
+        self.klass = klass
+        self.fields: dict[str, Any] = {}
+
+    def get(self, name: str, interpreter: "Interpreter") -> Any:
+        if name in self.fields:
+            return self.fields[name]
+        method = self.klass.find_method(name)
+        if method is not None:
+            return method.bind(self)
+        raise interpreter.runtime_error(
+            f"Class '{self.klass.name}' has no property or method '{name}'."
+        )
+
+    def set(self, name: str, value: Any) -> Any:
+        self.fields[name] = value
+        return value
+
+    def __repr__(self) -> str:
+        return f"<{self.klass.name} instance>"
+
+
+class SystemRuntimeModule:
+    def __init__(
+        self,
+        *,
+        detector: SystemDetector,
+        hardware_profile: HardwareProfile,
+        runtime_monitor: RuntimeMonitor,
+        memory_manager: MemoryManager,
+        execution_mode: str,
+        strict_safety: bool,
+    ) -> None:
+        self._detector = detector
+        self._profile = hardware_profile
+        self._runtime_monitor = runtime_monitor
+        self._memory_manager = memory_manager
+        self._execution_mode = execution_mode
+        self._strict_safety = strict_safety
+
+    def profile(self) -> dict[str, Any]:
+        payload = self._profile.as_dict()
+        payload["execution_mode"] = self._execution_mode
+        payload["strict_safety"] = self._strict_safety
+        payload["active_memory_mode"] = self._memory_manager.mode
+        return payload
+
+    def refresh(self) -> dict[str, Any]:
+        self._profile = self._detector.detect()
+        return self.profile()
+
+    def tier(self) -> str:
+        return self._profile.tier
+
+    def recommended_mode(self) -> str:
+        return self._profile.recommended_mode
+
+    def recommended_concurrency(self) -> int:
+        return self._profile.recommended_concurrency
+
+    def monitor(self) -> dict[str, Any]:
+        return self._runtime_monitor.profile()
+
+    def memory(self) -> dict[str, Any]:
+        return self._memory_manager.profile()
+
+    def warnings(self) -> list[str]:
+        monitor_warnings = self._runtime_monitor.profile()["warnings"]
+        memory_warnings = self._memory_manager.profile()["warnings"]
+        return list(memory_warnings) + list(monitor_warnings)
+
+    def doctor(self) -> dict[str, Any]:
+        return {
+            "hardware": self.profile(),
+            "memory": self.memory(),
+            "monitor": self.monitor(),
+            "status": "ok",
+        }
 
 
 class DBConnection:
@@ -324,26 +328,6 @@ class DBModule:
         return DBConnection(path)
 
 
-class DiscordBotSim:
-    def __init__(self, prefix: str = "!") -> None:
-        self.prefix = prefix
-        self._commands: dict[str, str] = {}
-
-    def command(self, name: str, response: str) -> None:
-        self._commands[name] = response
-
-    def simulate(self, message: str) -> str:
-        if not message.startswith(self.prefix):
-            return ""
-        command = message[len(self.prefix) :].strip().split(" ", maxsplit=1)[0]
-        return self._commands.get(command, "unknown-command")
-
-
-class DiscordModule:
-    def create(self, prefix: str = "!") -> DiscordBotSim:
-        return DiscordBotSim(prefix=prefix)
-
-
 class SDKModule:
     def __init__(self, memory_manager: MemoryManager) -> None:
         self._memory_manager = memory_manager
@@ -357,26 +341,6 @@ class SDKModule:
         return json.loads(text)
 
 
-class WebModule:
-    def __init__(self, memory_manager: MemoryManager) -> None:
-        self._memory_manager = memory_manager
-
-    def page(self, title: str, body_html: str) -> str:
-        compact = self._memory_manager.mode == "eco"
-        space = "" if compact else " "
-        return (
-            "<!doctype html>"
-            "<html><head><meta charset='utf-8'>"
-            f"<title>{title}</title></head>{space}"
-            f"<body>{body_html}</body></html>"
-        )
-
-    def json(self, value: Any) -> str:
-        if self._memory_manager.mode == "eco":
-            return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
-        return json.dumps(value, ensure_ascii=False)
-
-
 class Interpreter:
     def __init__(
         self,
@@ -385,26 +349,44 @@ class Interpreter:
         script_path: str | None = None,
         module_roots: list[Path] | None = None,
         memory_mode: str | None = None,
+        execution_mode: str | None = None,
     ) -> None:
-        self.globals = Environment()
-        self.environment = self.globals
         self.output_stream = output_stream
         self.output_lines: list[str] = []
-        self.memory_manager = MemoryManager(preferred_mode=memory_mode)
+        self.call_stack: list[str] = []
+
+        self.current_script = self.normalize_script_path(script_path)
+        self.execution_mode = execution_mode or self.mode_from_path(script_path)
+        self.strict_safety = self.execution_mode != "performance"
+
+        self.system_detector = SystemDetector()
+        self.hardware_profile = self.system_detector.detect()
+        resolved_memory_mode = memory_mode or self.hardware_profile.recommended_mode
+        self.memory_manager = MemoryManager(
+            preferred_mode=resolved_memory_mode,
+            strict_checks=self.strict_safety,
+        )
+        self.runtime_monitor = RuntimeMonitor(
+            execution_mode=self.execution_mode,
+            tier=self.hardware_profile.tier,
+            strict_safety=self.strict_safety,
+        )
+
+        self.globals = Environment()
+        self.environment = self.globals
         self.loaded_modules: set[Path] = set()
         self.loading_modules: set[Path] = set()
-        self.current_script = self._normalize_script_path(script_path)
-        self.module_roots = self._build_module_roots(module_roots)
-        self._install_builtins()
+        self.module_roots = self.build_module_roots(module_roots)
+        self.install_builtins()
 
-    def _normalize_script_path(self, script_path: str | None) -> Path | None:
+    def normalize_script_path(self, script_path: str | None) -> Path | None:
         if script_path is None:
             return None
         if script_path.startswith("<") and script_path.endswith(">"):
             return None
         return Path(script_path).resolve()
 
-    def _build_module_roots(self, module_roots: list[Path] | None) -> list[Path]:
+    def build_module_roots(self, module_roots: list[Path] | None) -> list[Path]:
         roots: list[Path] = [Path.cwd().resolve()]
         if self.current_script is not None:
             roots.insert(0, self.current_script.parent.resolve())
@@ -417,15 +399,19 @@ class Interpreter:
                 deduped.append(root)
         return deduped
 
-    def _install_builtins(self) -> None:
+    def install_builtins(self) -> None:
         self.globals.define("clock", NativeFunction("clock", lambda: time.time()), is_const=True)
         self.globals.define("len", NativeFunction("len", lambda value: len(value)), is_const=True)
         self.globals.define(
-            "type_of", NativeFunction("type_of", lambda value: type(value).__name__), is_const=True
+            "type_of",
+            NativeFunction("type_of", lambda value: type(value).__name__),
+            is_const=True,
         )
         self.globals.define("to_int", NativeFunction("to_int", lambda value: int(value)), is_const=True)
         self.globals.define(
-            "to_float", NativeFunction("to_float", lambda value: float(value)), is_const=True
+            "to_float",
+            NativeFunction("to_float", lambda value: float(value)),
+            is_const=True,
         )
         self.globals.define("to_str", NativeFunction("to_str", lambda value: str(value)), is_const=True)
         self.globals.define(
@@ -440,27 +426,107 @@ class Interpreter:
             ),
             is_const=True,
         )
-        self.globals.define("security", SecurityModule(), is_const=True)
+
+        self.globals.define("security", SecurityRuntimeModule(), is_const=True)
         self.globals.define("db", DBModule(), is_const=True)
-        self.globals.define("discord", DiscordModule(), is_const=True)
-        self.globals.define("sdk", SDKModule(self.memory_manager), is_const=True)
-        self.globals.define("web", WebModule(self.memory_manager), is_const=True)
-        self.globals.define("memory", MemoryModule(self.memory_manager), is_const=True)
+        self.globals.define("discord", DiscordRuntimeModule(self), is_const=True)
         self.globals.define(
-            "use_lib",
-            NativeFunction("use_lib", lambda module_path: self._execute_use_path(str(module_path))),
+            "game",
+            GameRuntimeModule(
+                self,
+                default_fps=30 if self.hardware_profile.tier == "low" else 60,
+            ),
+            is_const=True,
+        )
+        self.globals.define("sdk", SDKModule(self.memory_manager), is_const=True)
+        self.globals.define(
+            "web",
+            WebRuntimeModule(self, self.memory_manager),
+            is_const=True,
+        )
+        self.globals.define(
+            "anticheat",
+            AntiCheatRuntimeModule(self, self.memory_manager),
+            is_const=True,
+        )
+        self.globals.define(
+            "system",
+            SystemRuntimeModule(
+                detector=self.system_detector,
+                hardware_profile=self.hardware_profile,
+                runtime_monitor=self.runtime_monitor,
+                memory_manager=self.memory_manager,
+                execution_mode=self.execution_mode,
+                strict_safety=self.strict_safety,
+            ),
             is_const=True,
         )
 
+        allow_memory_mutation = self.execution_mode != "script"
+        self.globals.define(
+            "memory",
+            MemoryModule(self.memory_manager, allow_mutation=allow_memory_mutation),
+            is_const=True,
+        )
+        self.globals.define(
+            "use_lib",
+            NativeFunction("use_lib", lambda module_path: self.execute_use_path(str(module_path))),
+            is_const=True,
+        )
+
+    def push_call(self, name: str) -> None:
+        self.call_stack.append(name)
+
+    def pop_call(self) -> None:
+        if self.call_stack:
+            self.call_stack.pop()
+
+    def format_stack_trace(self) -> str:
+        if not self.call_stack:
+            return "<global>"
+        return " -> ".join(self.call_stack)
+
+    def runtime_error(self, message: str) -> KSharpRuntimeError:
+        return KSharpRuntimeError(f"{message}\nStackTrace: {self.format_stack_trace()}")
+
+    def runtime_tick(self) -> None:
+        monitor_state = self.runtime_monitor.tick()
+        warnings = monitor_state.get("warnings", [])
+        for warning in warnings:
+            self.memory_manager.warning_messages.append(f"monitor: {warning}")
+        hard_limit_hit = any("hard limit" in str(item).lower() for item in warnings)
+        if hard_limit_hit and self.strict_safety:
+            raise self.runtime_error(
+                "Runtime halted because process memory exceeded hard safety limit."
+            )
+
+    def mode_from_path(self, script_path: str | None) -> str:
+        if script_path is None:
+            return "full"
+        lower = script_path.lower()
+        if lower.endswith(".kpp"):
+            return "performance"
+        if lower.endswith(".k"):
+            return "script"
+        return "full"
+
     def interpret(self, program: Program) -> Any:
         last_value = None
-        for statement in program.statements:
-            result = self.execute(statement)
-            if result is not None:
-                last_value = result
-        return last_value
+        try:
+            for statement in program.statements:
+                result = self.execute(statement)
+                if result is not None:
+                    last_value = result
+            return last_value
+        except MemoryRuntimeError as exc:
+            raise self.runtime_error(str(exc)) from exc
+        except KSharpRuntimeError as exc:
+            if "StackTrace:" in str(exc):
+                raise
+            raise self.runtime_error(str(exc)) from exc
 
     def execute(self, stmt: Stmt) -> Any:
+        self.runtime_tick()
         if isinstance(stmt, VarDecl):
             value = self.evaluate(stmt.initializer)
             self.environment.define(stmt.name, value, is_const=stmt.is_const)
@@ -471,12 +537,26 @@ class Interpreter:
             self.environment.define(stmt.name, function, is_const=True)
             return None
 
+        if isinstance(stmt, ClassDecl):
+            if self.execution_mode == "script":
+                raise self.runtime_error("class is disabled in .k scripting mode.")
+            methods: dict[str, KSharpFunction] = {}
+            for method_decl in stmt.methods:
+                methods[method_decl.name] = KSharpFunction(
+                    declaration=method_decl,
+                    closure=self.environment,
+                    is_initializer=method_decl.name == "init",
+                )
+            klass = KSharpClass(stmt.name, methods)
+            self.environment.define(stmt.name, klass, is_const=True)
+            return None
+
         if isinstance(stmt, IfStmt):
-            if self._is_truthy(self.evaluate(stmt.condition)):
+            if self.is_truthy(self.evaluate(stmt.condition)):
                 self.execute_block(stmt.then_branch, Environment(self.environment))
                 return None
             for branch_condition, branch_body in stmt.elif_branches:
-                if self._is_truthy(self.evaluate(branch_condition)):
+                if self.is_truthy(self.evaluate(branch_condition)):
                     self.execute_block(branch_body, Environment(self.environment))
                     return None
             if stmt.else_branch is not None:
@@ -484,7 +564,7 @@ class Interpreter:
             return None
 
         if isinstance(stmt, WhileStmt):
-            while self._is_truthy(self.evaluate(stmt.condition)):
+            while self.is_truthy(self.evaluate(stmt.condition)):
                 try:
                     self.execute_block(stmt.body, Environment(self.environment))
                 except ContinueSignal:
@@ -496,7 +576,7 @@ class Interpreter:
         if isinstance(stmt, EachStmt):
             iterable = self.evaluate(stmt.iterable)
             if not hasattr(iterable, "__iter__"):
-                raise KSharpRuntimeError("Value used in each-loop is not iterable.")
+                raise self.runtime_error("Value used in each-loop is not iterable.")
             for item in iterable:
                 loop_env = Environment(self.environment)
                 loop_env.define(stmt.iterator_name, item)
@@ -526,13 +606,15 @@ class Interpreter:
             return None
 
         if isinstance(stmt, UseStmt):
-            self._execute_use_path(stmt.module_path)
+            if self.execution_mode == "script":
+                raise self.runtime_error("use/import is disabled in lightweight .k mode.")
+            self.execute_use_path(stmt.module_path)
             return None
 
         if isinstance(stmt, ExprStmt):
             return self.evaluate(stmt.expr)
 
-        raise KSharpRuntimeError(f"Unknown statement type: {type(stmt).__name__}")
+        raise self.runtime_error(f"Unknown statement type: {type(stmt).__name__}")
 
     def execute_block(self, statements: list[Stmt], environment: Environment) -> None:
         previous = self.environment
@@ -543,18 +625,18 @@ class Interpreter:
         finally:
             self.environment = previous
 
-    def _execute_use_path(self, module_ref: str) -> dict[str, Any]:
-        module_path = self._resolve_module_path(module_ref)
+    def execute_use_path(self, module_ref: str) -> dict[str, Any]:
+        module_path = self.resolve_module_path(module_ref)
         if module_path in self.loaded_modules:
             return {"module": str(module_path), "cached": True}
         if module_path in self.loading_modules:
-            raise KSharpRuntimeError(
-                f"Circular module import detected for '{module_path.name}'."
-            )
+            raise self.runtime_error(f"Circular module import detected for '{module_path.name}'.")
 
-        source = module_path.read_text(encoding="utf-8")
         from .lexer import Lexer
         from .parser import Parser
+
+        source = module_path.read_text(encoding="utf-8")
+        imported_mode = self.mode_from_path(str(module_path))
 
         self.loading_modules.add(module_path)
         previous_script = self.current_script
@@ -564,7 +646,11 @@ class Interpreter:
             if module_path.parent not in self.module_roots:
                 self.module_roots.insert(0, module_path.parent)
             tokens = Lexer(source=source, filename=str(module_path)).tokenize()
-            program = Parser(tokens=tokens, filename=str(module_path)).parse()
+            program = Parser(
+                tokens=tokens,
+                filename=str(module_path),
+                execution_mode=imported_mode,
+            ).parse()
             for statement in program.statements:
                 self.execute(statement)
             self.loaded_modules.add(module_path)
@@ -574,10 +660,10 @@ class Interpreter:
             self.current_script = previous_script
             self.module_roots = previous_roots
 
-    def _resolve_module_path(self, module_ref: str) -> Path:
+    def resolve_module_path(self, module_ref: str) -> Path:
         raw = module_ref.strip()
         if not raw:
-            raise KSharpRuntimeError("use requires a non-empty module path.")
+            raise self.runtime_error("use requires a non-empty module path.")
 
         raw_path = Path(raw)
         candidates: list[Path] = []
@@ -591,40 +677,37 @@ class Interpreter:
         if self.current_script is not None:
             search_dirs.append(self.current_script.parent)
         search_dirs.extend(self.module_roots)
-        if Path.cwd().resolve() not in search_dirs:
-            search_dirs.append(Path.cwd().resolve())
+        cwd = Path.cwd().resolve()
+        if cwd not in search_dirs:
+            search_dirs.append(cwd)
 
         for candidate in candidates:
             if candidate.is_absolute():
                 resolved = candidate.resolve()
-                self._validate_module_path(resolved)
+                self.validate_module_path(resolved)
                 if resolved.exists():
                     return resolved
                 continue
 
             for base_dir in search_dirs:
                 resolved = (base_dir / candidate).resolve()
-                self._validate_module_path(resolved)
+                self.validate_module_path(resolved)
                 if resolved.exists():
                     return resolved
 
         searched = ", ".join(str(path) for path in search_dirs)
-        raise KSharpRuntimeError(
-            f"Cannot find module '{module_ref}'. Searched in: {searched}"
-        )
+        raise self.runtime_error(f"Cannot find module '{module_ref}'. Searched in: {searched}")
 
-    def _validate_module_path(self, path: Path) -> None:
+    def validate_module_path(self, path: Path) -> None:
         if path.suffix not in MODULE_EXTENSIONS:
-            raise KSharpRuntimeError(
+            raise self.runtime_error(
                 f"Unsupported module extension '{path.suffix}'. Use .ksharp, .kpp, or .k."
             )
-        if not any(self._is_relative_to(path, root) for root in self.module_roots):
-            raise KSharpRuntimeError(
-                f"Module '{path}' is outside allowed roots for safety."
-            )
+        if self.strict_safety and not any(self.is_relative_to(path, root) for root in self.module_roots):
+            raise self.runtime_error(f"Module '{path}' is outside allowed roots for safety.")
 
     @staticmethod
-    def _is_relative_to(path: Path, root: Path) -> bool:
+    def is_relative_to(path: Path, root: Path) -> bool:
         try:
             path.relative_to(root)
             return True
@@ -632,6 +715,7 @@ class Interpreter:
             return False
 
     def evaluate(self, expr: Expr) -> Any:
+        self.runtime_tick()
         if isinstance(expr, Literal):
             return expr.value
 
@@ -646,71 +730,86 @@ class Interpreter:
             self.environment.assign(expr.name, value)
             return value
 
+        if isinstance(expr, SetExpr):
+            target = self.evaluate(expr.target)
+            value = self.evaluate(expr.value)
+            return self.set_member(target, expr.name, value)
+
         if isinstance(expr, ListLiteral):
             return [self.evaluate(item) for item in expr.elements]
+
+        if isinstance(expr, LambdaExpr):
+            return KSharpLambda(params=expr.params, body=expr.body, closure=self.environment)
+
+        if isinstance(expr, NewExpr):
+            class_obj = self.environment.get(expr.class_name)
+            if not isinstance(class_obj, KSharpClass):
+                raise self.runtime_error(f"'{expr.class_name}' is not a class.")
+            args = [self.evaluate(arg) for arg in expr.args]
+            return class_obj.call(self, args)
 
         if isinstance(expr, Unary):
             right = self.evaluate(expr.right)
             if expr.operator in ("not", "!"):
-                return not self._is_truthy(right)
+                return not self.is_truthy(right)
             if expr.operator == "-":
-                self._require_number(right, "Unary '-'")
+                self.require_number(right, "Unary '-'")
                 return -right
-            raise KSharpRuntimeError(f"Unknown unary operator '{expr.operator}'.")
+            raise self.runtime_error(f"Unknown unary operator '{expr.operator}'.")
 
         if isinstance(expr, Logical):
             left = self.evaluate(expr.left)
             if expr.operator == "or":
-                return left if self._is_truthy(left) else self.evaluate(expr.right)
+                return left if self.is_truthy(left) else self.evaluate(expr.right)
             if expr.operator == "and":
-                return self.evaluate(expr.right) if self._is_truthy(left) else left
-            raise KSharpRuntimeError(f"Unknown logical operator '{expr.operator}'.")
+                return self.evaluate(expr.right) if self.is_truthy(left) else left
+            raise self.runtime_error(f"Unknown logical operator '{expr.operator}'.")
 
         if isinstance(expr, Binary):
             left = self.evaluate(expr.left)
             right = self.evaluate(expr.right)
-            return self._eval_binary(expr.operator, left, right)
+            return self.eval_binary(expr.operator, left, right)
 
         if isinstance(expr, Call):
             callee = self.evaluate(expr.callee)
             args = [self.evaluate(arg) for arg in expr.args]
-            return self._call(callee, args)
+            return self.call(callee, args)
 
         if isinstance(expr, GetExpr):
             target = self.evaluate(expr.target)
-            return self._get_member(target, expr.name)
+            return self.get_member(target, expr.name)
 
         if isinstance(expr, IndexExpr):
             target = self.evaluate(expr.target)
             index = self.evaluate(expr.index)
-            return self._index(target, index)
+            return self.index(target, index)
 
-        raise KSharpRuntimeError(f"Unknown expression type: {type(expr).__name__}")
+        raise self.runtime_error(f"Unknown expression type: {type(expr).__name__}")
 
-    def _eval_binary(self, operator: str, left: Any, right: Any) -> Any:
+    def eval_binary(self, operator: str, left: Any, right: Any) -> Any:
         if operator == "+":
             if isinstance(left, (int, float)) and isinstance(right, (int, float)):
                 return left + right
             return str(left) + str(right)
         if operator == "-":
-            self._require_number(left, "'-'")
-            self._require_number(right, "'-'")
+            self.require_number(left, "'-'")
+            self.require_number(right, "'-'")
             return left - right
         if operator == "*":
             if isinstance(left, (int, float)) and isinstance(right, (int, float)):
                 return left * right
             if isinstance(left, str) and isinstance(right, int):
                 return left * right
-            raise KSharpRuntimeError("Operator '*' expects numbers or string*int.")
+            raise self.runtime_error("Operator '*' expects numbers or string*int.")
         if operator == "/":
-            self._require_number(left, "'/'")
-            self._require_number(right, "'/'")
+            self.require_number(left, "'/'")
+            self.require_number(right, "'/'")
             if right == 0:
-                raise KSharpRuntimeError("Division by zero.")
+                raise self.runtime_error("Division by zero.")
             return left / right
         if operator == "%":
-            self._require_number(left, "'%'")
-            self._require_number(right, "'%'")
+            self.require_number(left, "'%'")
+            self.require_number(right, "'%'")
             return left % right
         if operator == "==":
             return left == right
@@ -724,53 +823,107 @@ class Interpreter:
             return left < right
         if operator == "<=":
             return left <= right
-        raise KSharpRuntimeError(f"Unknown binary operator '{operator}'.")
+        raise self.runtime_error(f"Unknown binary operator '{operator}'.")
 
-    def _call(self, callee: Any, args: list[Any]) -> Any:
+    def call(self, callee: Any, args: list[Any]) -> Any:
         if isinstance(callee, KSharpFunction):
+            return callee.call(self, args)
+        if isinstance(callee, KSharpLambda):
+            return callee.call(self, args)
+        if isinstance(callee, KSharpClass):
             return callee.call(self, args)
         if isinstance(callee, NativeFunction):
             try:
                 return callee(*args)
-            except TypeError as exc:
-                raise KSharpRuntimeError(f"Invalid arguments for native function {callee.name}.") from exc
+            except Exception as exc:
+                raise self.runtime_error(
+                    f"Invalid arguments for native function '{callee.name}'."
+                ) from exc
         if callable(callee):
             try:
                 return callee(*args)
-            except TypeError as exc:
+            except Exception as exc:
                 name = getattr(callee, "__name__", type(callee).__name__)
-                raise KSharpRuntimeError(f"Invalid arguments for callable '{name}'.") from exc
-        raise KSharpRuntimeError(f"Object of type '{type(callee).__name__}' is not callable.")
+                raise self.runtime_error(f"Invalid arguments for callable '{name}'.") from exc
+        raise self.runtime_error(f"Object of type '{type(callee).__name__}' is not callable.")
 
-    def _index(self, target: Any, index: Any) -> Any:
+    def index(self, target: Any, index: Any) -> Any:
         try:
             return target[index]
         except Exception as exc:
-            raise KSharpRuntimeError(
+            raise self.runtime_error(
                 f"Cannot access index/key '{index}' on value of type '{type(target).__name__}'."
             ) from exc
 
-    def _get_member(self, target: Any, name: str) -> Any:
-        if name.startswith("_"):
-            raise KSharpRuntimeError("Access to private members is blocked for safety.")
+    def get_member(self, target: Any, name: str) -> Any:
+        if self.strict_safety and name.startswith("_"):
+            raise self.runtime_error("Access to private members is blocked for safety.")
+        if isinstance(target, KSharpInstance):
+            return target.get(name, self)
         if isinstance(target, dict):
             if name in target:
                 return target[name]
-            raise KSharpRuntimeError(f"Dictionary has no key '{name}'.")
+            raise self.runtime_error(f"Dictionary has no key '{name}'.")
         if hasattr(target, name):
             return getattr(target, name)
-        raise KSharpRuntimeError(
-            f"Value of type '{type(target).__name__}' has no member '{name}'."
+        raise self.runtime_error(f"Value of type '{type(target).__name__}' has no member '{name}'.")
+
+    def set_member(self, target: Any, name: str, value: Any) -> Any:
+        if self.strict_safety and name.startswith("_"):
+            raise self.runtime_error("Setting private members is blocked for safety.")
+        if isinstance(target, KSharpInstance):
+            return target.set(name, value)
+        if isinstance(target, dict):
+            target[name] = value
+            return value
+        if hasattr(target, name):
+            setattr(target, name, value)
+            return value
+        raise self.runtime_error(
+            f"Cannot set member '{name}' on value of type '{type(target).__name__}'."
         )
 
-    @staticmethod
-    def _is_truthy(value: Any) -> bool:
-        return bool(value)
+    def enforce_return_type(self, func_name: str, expected_type: str, value: Any) -> None:
+        normalized = expected_type.strip().lower()
+        if normalized in ("any", "object"):
+            return
+        valid = False
+        if normalized in ("int", "integer"):
+            valid = isinstance(value, int) and not isinstance(value, bool)
+        elif normalized in ("float", "double"):
+            valid = isinstance(value, float)
+        elif normalized in ("number", "num"):
+            valid = isinstance(value, (int, float)) and not isinstance(value, bool)
+        elif normalized in ("str", "string"):
+            valid = isinstance(value, str)
+        elif normalized in ("bool", "boolean"):
+            valid = isinstance(value, bool)
+        elif normalized in ("list", "array"):
+            valid = isinstance(value, list)
+        elif normalized in ("dict", "map"):
+            valid = isinstance(value, dict)
+        elif normalized in ("nil", "void", "none"):
+            valid = value is None
+        elif normalized in ("class", "instance"):
+            valid = isinstance(value, KSharpInstance)
+        else:
+            # Unknown type hints are treated as documentation-only for now.
+            return
+
+        if not valid:
+            raise self.runtime_error(
+                f"Return type mismatch in '{func_name}': expected {expected_type}, got {type(value).__name__}."
+            )
 
     @staticmethod
-    def _require_number(value: Any, context: str) -> None:
+    def is_truthy(value: Any) -> bool:
+        return bool(value)
+
+    def require_number(self, value: Any, context: str) -> None:
         if not isinstance(value, (int, float)):
-            raise KSharpRuntimeError(f"{context} expects a numeric value, got {type(value).__name__}.")
+            raise self.runtime_error(
+                f"{context} expects a numeric value, got {type(value).__name__}."
+            )
 
     @staticmethod
     def stringify(value: Any) -> str:
@@ -781,6 +934,5 @@ class Interpreter:
         if value is False:
             return "false"
         if isinstance(value, float):
-            formatted = f"{value:.12g}"
-            return formatted
+            return f"{value:.12g}"
         return str(value)

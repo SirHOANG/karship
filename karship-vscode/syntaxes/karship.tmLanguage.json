@@ -77,7 +77,7 @@
       "patterns": [
         {
           "name": "keyword.control.karship",
-          "match": "\\b(let|lock|forge|if|elif|else|while|each|in|return|break|continue|use|spark)\\b"
+          "match": "\\b(let|lock|forge|if|elif|else|while|each|in|return|break|continue|use|spark|class|new|lambda|self)\\b"
         },
         {
           "name": "keyword.operator.logical.karship",

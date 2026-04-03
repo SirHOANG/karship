@@ -5,6 +5,7 @@ from .ast_nodes import (
     Binary,
     BreakStmt,
     Call,
+    ClassDecl,
     ContinueStmt,
     EachStmt,
     Expr,
@@ -14,11 +15,14 @@ from .ast_nodes import (
     Grouping,
     IfStmt,
     IndexExpr,
+    LambdaExpr,
     ListLiteral,
     Literal,
     Logical,
+    NewExpr,
     Program,
     ReturnStmt,
+    SetExpr,
     SparkStmt,
     Stmt,
     Unary,
@@ -38,9 +42,15 @@ SEPARATOR_TYPES = {"NEWLINE", "SEMICOLON"}
 
 
 class Parser:
-    def __init__(self, tokens: list[Token], filename: str = "<memory>") -> None:
+    def __init__(
+        self,
+        tokens: list[Token],
+        filename: str = "<memory>",
+        execution_mode: str = "full",
+    ) -> None:
         self.tokens = tokens
         self.filename = filename
+        self.execution_mode = execution_mode
         self._current = 0
 
     def parse(self) -> Program:
@@ -53,6 +63,8 @@ class Parser:
         return Program(statements)
 
     def _declaration(self) -> Stmt:
+        if self._match_keyword("class"):
+            return self._class_declaration()
         if self._match_keyword("let"):
             return self._variable_declaration(is_const=False)
         if self._match_keyword("lock"):
@@ -60,6 +72,25 @@ class Parser:
         if self._match_keyword("forge"):
             return self._function_declaration()
         return self._statement()
+
+    def _class_declaration(self) -> ClassDecl:
+        if self.execution_mode == "script":
+            raise self._error(
+                self._previous(),
+                "Class declarations are disabled in .k script mode.",
+            )
+        name = self._consume("IDENTIFIER", "Expected class name after 'class'.")
+        self._consume("LEFT_BRACE", "Expected '{' after class name.")
+        methods: list[FunctionDecl] = []
+        while not self._check("RIGHT_BRACE") and not self._is_at_end():
+            self._skip_separators()
+            if self._check("RIGHT_BRACE"):
+                break
+            self._consume_keyword("forge", "Expected 'forge' before class method.")
+            methods.append(self._function_declaration())
+            self._skip_separators()
+        self._consume("RIGHT_BRACE", "Expected '}' after class body.")
+        return ClassDecl(name=name.lexeme, methods=methods)
 
     def _statement(self) -> Stmt:
         if self._match_keyword("if"):
@@ -97,8 +128,20 @@ class Parser:
                 if not self._match("COMMA"):
                     break
         self._consume("RIGHT_PAREN", "Expected ')' after parameters.")
+        return_type: str | None = None
+        if self._match("ARROW"):
+            type_token = self._consume(
+                "IDENTIFIER",
+                "Expected return type name after '->'.",
+            )
+            return_type = type_token.lexeme
         body = self._block()
-        return FunctionDecl(name=name.lexeme, params=params, body=body)
+        return FunctionDecl(
+            name=name.lexeme,
+            params=params,
+            body=body,
+            return_type=return_type,
+        )
 
     def _if_statement(self) -> IfStmt:
         condition = self._expression()
@@ -149,6 +192,11 @@ class Parser:
         return SparkStmt(args=args)
 
     def _use_statement(self) -> UseStmt:
+        if self.execution_mode == "script":
+            raise self._error(
+                self._previous(),
+                "Imports are disabled in .k script mode.",
+            )
         if self._match("LEFT_PAREN"):
             module = self._consume("STRING", "Expected module path string in use(...).")
             self._consume("RIGHT_PAREN", "Expected ')' after use module path.")
@@ -180,6 +228,8 @@ class Parser:
             value = self._assignment()
             if isinstance(expr, Variable):
                 return Assign(name=expr.name, value=value)
+            if isinstance(expr, GetExpr):
+                return SetExpr(target=expr.target, name=expr.name, value=value)
             raise self._error(equals, "Invalid assignment target.")
         return expr
 
@@ -270,12 +320,18 @@ class Parser:
             return Literal(self._previous().literal)
         if self._match("STRING"):
             return Literal(self._previous().literal)
+        if self._match_keyword("lambda"):
+            return self._lambda_expression()
+        if self._match_keyword("new"):
+            return self._new_expression()
         if self._match_keyword("true"):
             return Literal(True)
         if self._match_keyword("false"):
             return Literal(False)
         if self._match_keyword("nil"):
             return Literal(None)
+        if self._match_keyword("self"):
+            return Variable("self")
         if self._match("IDENTIFIER"):
             return Variable(self._previous().lexeme)
         if self._match("LEFT_PAREN"):
@@ -292,6 +348,32 @@ class Parser:
             self._consume("RIGHT_BRACKET", "Expected ']' after list literal.")
             return ListLiteral(elements=elements)
         raise self._error(self._peek(), "Expected expression.")
+
+    def _lambda_expression(self) -> LambdaExpr:
+        self._consume("LEFT_PAREN", "Expected '(' after 'lambda'.")
+        params: list[str] = []
+        if not self._check("RIGHT_PAREN"):
+            while True:
+                param = self._consume("IDENTIFIER", "Expected lambda parameter name.")
+                params.append(param.lexeme)
+                if not self._match("COMMA"):
+                    break
+        self._consume("RIGHT_PAREN", "Expected ')' after lambda parameters.")
+        self._consume("FAT_ARROW", "Expected '=>' in lambda expression.")
+        body = self._expression()
+        return LambdaExpr(params=params, body=body)
+
+    def _new_expression(self) -> NewExpr:
+        class_name = self._consume("IDENTIFIER", "Expected class name after 'new'.")
+        self._consume("LEFT_PAREN", "Expected '(' after class name.")
+        args: list[Expr] = []
+        if not self._check("RIGHT_PAREN"):
+            while True:
+                args.append(self._expression())
+                if not self._match("COMMA"):
+                    break
+        self._consume("RIGHT_PAREN", "Expected ')' after constructor arguments.")
+        return NewExpr(class_name=class_name.lexeme, args=args)
 
     def _skip_separators(self) -> None:
         while self._match(*SEPARATOR_TYPES):

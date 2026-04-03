@@ -12,13 +12,29 @@ memory.alloc("compiler-cache", 16)
 spark("Reserved MB:", memory.profile()["allocated_mb"])
 memory.free("compiler-cache")
 
-forge power(base, exp) {
+forge power(base, exp) -> number {
     let result = 1
     each i in range(0, exp) {
         result = result * base
     }
     return result
 }
+
+class Greeter {
+    forge init(name) {
+        self.name = name
+    }
+
+    forge speak() -> string {
+        return "Hi " + self.name + " from class Greeter"
+    }
+}
+
+let greeter = new Greeter("Karship")
+spark(greeter.speak())
+
+let plus = lambda(a, b) => a + b
+spark("lambda 7+8 =", plus(7, 8))
 
 spark("2^8 =", power(2, 8))
 spark("Ethical mode:", security.white_hat_only())

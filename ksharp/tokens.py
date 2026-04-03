@@ -25,6 +25,10 @@ KEYWORDS = {
     "nil",
     "spark",
     "use",
+    "class",
+    "new",
+    "lambda",
+    "self",
 }
 
 

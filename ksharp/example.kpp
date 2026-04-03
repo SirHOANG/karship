@@ -13,4 +13,13 @@ spark("JSON payload:")
 spark(payload)
 spark("Memory mode:", memory.mode(), "Allocated:", memory.profile()["allocated_mb"], "MB")
 
+class FastBox {
+    forge init(value) {
+        self._raw = value
+    }
+}
+
+let f = new FastBox("kpp")
+spark("kpp private access:", f._raw)
+
 conn.close()

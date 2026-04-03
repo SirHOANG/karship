@@ -49,7 +49,6 @@ class Lexer:
             ",": "COMMA",
             ".": "DOT",
             "+": "PLUS",
-            "-": "MINUS",
             "*": "STAR",
             "%": "PERCENT",
             ";": "SEMICOLON",
@@ -57,6 +56,11 @@ class Lexer:
         }
         if char in single_char_tokens:
             self._add_token(single_char_tokens[char], char)
+            return
+
+        if char == "-":
+            token_type = "ARROW" if self._match(">") else "MINUS"
+            self._add_token(token_type, "->" if token_type == "ARROW" else "-")
             return
 
         if char == "/":
@@ -75,6 +79,9 @@ class Lexer:
             return
 
         if char == "=":
+            if self._match(">"):
+                self._add_token("FAT_ARROW", "=>")
+                return
             token_type = "EQUAL_EQUAL" if self._match("=") else "EQUAL"
             self._add_token(token_type, "==" if token_type == "EQUAL_EQUAL" else "=")
             return

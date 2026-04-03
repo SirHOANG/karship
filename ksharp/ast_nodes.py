@@ -33,6 +33,13 @@ class FunctionDecl(Stmt):
     name: str
     params: list[str]
     body: list[Stmt]
+    return_type: str | None = None
+
+
+@dataclass(slots=True)
+class ClassDecl(Stmt):
+    name: str
+    methods: list[FunctionDecl]
 
 
 @dataclass(slots=True)
@@ -103,6 +110,13 @@ class Assign(Expr):
 
 
 @dataclass(slots=True)
+class SetExpr(Expr):
+    target: Expr
+    name: str
+    value: Expr
+
+
+@dataclass(slots=True)
 class Grouping(Expr):
     expr: Expr
 
@@ -148,3 +162,15 @@ class IndexExpr(Expr):
 @dataclass(slots=True)
 class ListLiteral(Expr):
     elements: list[Expr]
+
+
+@dataclass(slots=True)
+class LambdaExpr(Expr):
+    params: list[str]
+    body: Expr
+
+
+@dataclass(slots=True)
+class NewExpr(Expr):
+    class_name: str
+    args: list[Expr]
