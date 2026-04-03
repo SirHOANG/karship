@@ -1,0 +1,13 @@
+{
+  "name": "karship",
+  "version": "0.1.0",
+  "entry": "main.ksharp",
+  "runtime": {
+    "adaptive": true,
+    "default_memory_mode": "auto"
+  },
+  "dependencies": {
+    "discord-ksharp": "native-0.1.0",
+    "ytdlp-ksharp": "native-0.1.0"
+  }
+}

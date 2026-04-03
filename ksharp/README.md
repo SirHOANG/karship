@@ -100,11 +100,123 @@ kar run main.ksharp
 kar build
 kar mem
 kar doctor
+kar native
 kar install discord.py
 kar remove discord.py
+kar uninstall discord.py
 ```
 
 `kar install/remove` supports local project dependencies (tracked in `karship.json`) and global mode via `--global`.
+
+### Native Package Catalog
+
+Karship now ships a larger native `.ksharp` package set for Python/Lua/C++/C# style workflows.
+
+List them anytime:
+
+```bash
+kar native
+```
+
+Core packages:
+
+- `discord.ksharp` (`discord-ksharp`) - bot + intents + voice command wrappers
+- `ytdlp.ksharp` (`ytdlp-ksharp`) - URL/query stream extraction helpers
+- `web.ksharp` (`web-ksharp`) - HTTP server and routing helpers
+- `db.ksharp` (`db-ksharp`) - sqlite convenience helpers
+- `security.ksharp` (`security-ksharp`) - white-hat security helpers
+- `game.ksharp` (`game-ksharp`) - game-loop + input helpers
+- `anticheat.ksharp` (`anticheat-ksharp`) - event + memory scan helpers
+- `sdk.ksharp` (`sdk-ksharp`) - JSON encode/decode helpers
+- `system.ksharp` (`system-ksharp`) - hardware/runtime profile helpers
+- `memory.ksharp` (`memory-ksharp`) - memory mode + allocation wrappers
+- `utils.ksharp` (`utils-ksharp`) - utility helpers (clamp/coalesce/join)
+- `collections.ksharp` (`collections-ksharp`) - list operations (`push`, `find`, `copy`)
+- `math.ksharp` (`math-ksharp`) - lightweight math helpers
+- `devtools.ksharp` (`devtools-ksharp`) - debug/timer/assert helpers
+
+Install examples:
+
+```bash
+kar install web.ksharp
+kar install db.ksharp
+kar install utils.ksharp
+kar install collections.ksharp
+kar install math.ksharp
+```
+
+### discord.ksharp Native Package
+
+Install native Discord helpers for Karship:
+
+```bash
+kar init .
+kar install discord.ksharp
+```
+
+This installs `libs/discord.ksharp` and attempts to install Python bridge dependencies (`discord.py`, `PyNaCl`) for runtime bot + voice support.
+
+Useful commands:
+
+```bash
+kar install discord.ksharp --native-only
+kar uninstall discord.ksharp
+kar uninstall discord.ksharp --global
+```
+
+### ytdlp.ksharp Native Package
+
+Install Karship yt-dlp helpers for URL music playback:
+
+```bash
+kar install ytdlp.ksharp
+```
+
+Use with Discord helpers:
+
+```ksharp
+use "discord.ksharp"
+use "ytdlp.ksharp"
+
+let bot = discord_create("!")
+discord_enable_voice(bot)
+discord_music_url(bot, "play")   # supports !play <url> and /play <url>
+```
+
+Troubleshooting quick check:
+
+```ksharp
+spark(ytdlp_profile())
+spark(ytdlp_last_error())
+```
+
+Note:
+- This package supports legitimate extraction/playback workflows.
+- Do not use it to bypass platform protections or violate service terms.
+
+Minimal bot:
+
+```ksharp
+use "discord.ksharp"
+let bot = discord_create("!")
+forge ping_cmd(content) { return "pong" }
+discord_command(bot, "ping", ping_cmd)
+bot.run("YOUR_BOT_TOKEN")
+```
+
+### Permanent Windows Install (PowerShell + CMD)
+
+To make `kar` available forever in new terminals:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools/install-kar-cli.ps1
+```
+
+For all users on the same computer (run PowerShell as Administrator):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools/install-kar-cli.ps1 -AllUsers
+```
 
 ## Library Pattern
 

@@ -11,12 +11,14 @@ from runtime.memory import MemoryManager, MemoryModule, MemoryRuntimeError
 from runtime.monitor import RuntimeMonitor
 from runtime.system_detection import HardwareProfile, SystemDetector
 
+from .package_manager import get_global_karship_packages_dir
 from .modules import (
     AntiCheatRuntimeModule,
     DiscordRuntimeModule,
     GameRuntimeModule,
     SecurityRuntimeModule,
     WebRuntimeModule,
+    YTDLPRuntimeModule,
 )
 from .ast_nodes import (
     Assign,
@@ -393,8 +395,20 @@ class Interpreter:
         if module_roots:
             for root in module_roots:
                 roots.append(Path(root).resolve())
-        deduped: list[Path] = []
+
+        expanded_roots: list[Path] = []
         for root in roots:
+            expanded_roots.append(root)
+            local_libs = (root / "libs").resolve()
+            if local_libs.exists():
+                expanded_roots.append(local_libs)
+
+        global_packages = get_global_karship_packages_dir(create=False)
+        if global_packages.exists():
+            expanded_roots.append(global_packages.resolve())
+
+        deduped: list[Path] = []
+        for root in expanded_roots:
             if root not in deduped:
                 deduped.append(root)
         return deduped
@@ -449,6 +463,7 @@ class Interpreter:
             AntiCheatRuntimeModule(self, self.memory_manager),
             is_const=True,
         )
+        self.globals.define("ytdlp", YTDLPRuntimeModule(self), is_const=True)
         self.globals.define(
             "system",
             SystemRuntimeModule(

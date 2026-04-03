@@ -1,10 +1,23 @@
 import unittest
 from pathlib import Path
 import tempfile
+from unittest.mock import patch
+import sys
+import types
 
 from ksharp.kar_cli import main as kar_main
 from ksharp.ksharp_interpreter import KSharpError, run_file, run_source
-from ksharp.package_manager import LOCAL_SITE_PACKAGES_REL, init_project, load_project_config
+from ksharp.modules.discord_module import DiscordBotBridge
+from ksharp.modules.ytdlp_module import YTDLPRuntimeModule
+from ksharp.package_manager import (
+    LOCAL_SITE_PACKAGES_REL,
+    init_project,
+    install_package,
+    load_project_config,
+    native_package_ids,
+    remove_package,
+)
+from ksharp.runtime import Interpreter
 
 
 class KSharpLanguageTests(unittest.TestCase):
@@ -190,6 +203,151 @@ spark(stats["frames"] >= 1)
             exit_code = kar_main(["build", str(project_root)])
             self.assertEqual(exit_code, 0)
             self.assertTrue((project_root / ".karship" / "build" / "build-manifest.json").exists())
+
+    def test_discord_native_package_install_and_remove(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_root = Path(temp_dir)
+            init_project(project_root, name="discord-native")
+
+            installed = install_package(
+                "discord.ksharp",
+                project_root=project_root,
+                global_install=False,
+                install_python_bridge=False,
+            )
+            self.assertEqual(installed["package"], "discord-ksharp")
+            library_path = project_root / "libs" / "discord.ksharp"
+            self.assertTrue(library_path.exists())
+            self.assertIn("discord_create", library_path.read_text(encoding="utf-8"))
+
+            config = load_project_config(project_root)
+            self.assertEqual(config["dependencies"]["discord-ksharp"], "native-0.1.0")
+
+            removed = remove_package(
+                "discord.ksharp",
+                project_root=project_root,
+                global_install=False,
+                remove_python_bridge=False,
+            )
+            self.assertEqual(removed["package"], "discord-ksharp")
+            self.assertFalse(library_path.exists())
+
+    def test_ytdlp_native_package_install_and_remove(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_root = Path(temp_dir)
+            init_project(project_root, name="ytdlp-native")
+
+            installed = install_package(
+                "ytdlp.ksharp",
+                project_root=project_root,
+                global_install=False,
+                install_python_bridge=False,
+            )
+            self.assertEqual(installed["package"], "ytdlp-ksharp")
+            library_path = project_root / "libs" / "ytdlp.ksharp"
+            self.assertTrue(library_path.exists())
+            self.assertIn("ytdlp_stream", library_path.read_text(encoding="utf-8"))
+
+            config = load_project_config(project_root)
+            self.assertEqual(config["dependencies"]["ytdlp-ksharp"], "native-0.1.0")
+
+            removed = remove_package(
+                "ytdlp.ksharp",
+                project_root=project_root,
+                global_install=False,
+                remove_python_bridge=False,
+            )
+            self.assertEqual(removed["package"], "ytdlp-ksharp")
+            self.assertFalse(library_path.exists())
+
+    def test_discord_music_url_simulation(self) -> None:
+        source = """
+let bot = discord.create("!")
+bot.music_url("play")
+spark(bot.simulate("!play https://youtu.be/dQw4w9WgXcQ"))
+"""
+        result = run_source(source, filename="music-url.ksharp", emit_stdout=False)
+        self.assertTrue(result.output[0].startswith("music-url-command:"))
+
+    def test_native_package_catalog_is_large_and_useful(self) -> None:
+        ids = native_package_ids()
+        self.assertGreaterEqual(len(ids), 10)
+        self.assertIn("web-ksharp", ids)
+        self.assertIn("db-ksharp", ids)
+        self.assertIn("utils-ksharp", ids)
+        self.assertIn("collections-ksharp", ids)
+
+    def test_install_and_remove_web_native_package(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_root = Path(temp_dir)
+            init_project(project_root, name="web-native")
+
+            installed = install_package(
+                "web.ksharp",
+                project_root=project_root,
+                global_install=False,
+                install_python_bridge=False,
+            )
+            self.assertEqual(installed["package"], "web-ksharp")
+            library_path = project_root / "libs" / "web.ksharp"
+            self.assertTrue(library_path.exists())
+            self.assertIn("forge web_route", library_path.read_text(encoding="utf-8"))
+
+            config = load_project_config(project_root)
+            self.assertEqual(config["dependencies"]["web-ksharp"], "native-0.1.0")
+
+            removed = remove_package(
+                "web.ksharp",
+                project_root=project_root,
+                global_install=False,
+                remove_python_bridge=False,
+            )
+            self.assertEqual(removed["package"], "web-ksharp")
+            self.assertFalse(library_path.exists())
+
+    def test_discord_cookie_file_syncs_with_ytdlp_runtime(self) -> None:
+        interpreter = Interpreter(output_stream=None, script_path="main.ksharp")
+        bot = DiscordBotBridge(interpreter, prefix="!")
+        ytdlp_runtime = interpreter.globals.get("ytdlp")
+
+        bot.set_cookie_file("cookies.txt")
+        self.assertEqual(ytdlp_runtime.profile()["cookie_file"], "cookies.txt")
+
+        bot.clear_cookie_file()
+        self.assertIsNone(ytdlp_runtime.profile()["cookie_file"])
+
+    def test_ytdlp_stream_retries_after_first_failure(self) -> None:
+        interpreter = Interpreter(output_stream=None, script_path="main.ksharp")
+        module = YTDLPRuntimeModule(interpreter)
+        attempts: list[str] = []
+        fake_yt_dlp = types.SimpleNamespace(YoutubeDL=object)
+
+        def _fake_extract(_yt_dlp: object, target: str, _options: dict[str, object]) -> object:
+            attempts.append(target)
+            if len(attempts) == 1:
+                raise RuntimeError("temporary extraction error")
+            return {
+                "_type": "playlist",
+                "entries": [
+                    {
+                        "title": "Lofi Stream",
+                        "webpage_url": "https://youtube.com/watch?v=test",
+                        "formats": [
+                            {"acodec": "opus", "abr": 128, "url": "https://stream.example/audio"},
+                        ],
+                    }
+                ],
+            }
+
+        with patch.dict(sys.modules, {"yt_dlp": fake_yt_dlp}):
+            with patch.object(module, "_has_yt_dlp", return_value=True):
+                with patch.object(module, "_extract_with_options", side_effect=_fake_extract):
+                    payload = module.stream("lofi radio")
+
+        self.assertEqual(payload["title"], "Lofi Stream")
+        self.assertEqual(payload["stream_url"], "https://stream.example/audio")
+        self.assertGreaterEqual(len(attempts), 2)
+        self.assertIsNone(module.last_error())
 
 
 if __name__ == "__main__":

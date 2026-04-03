@@ -3,6 +3,7 @@ from .discord_module import DiscordRuntimeModule
 from .game_module import GameRuntimeModule
 from .security_module import SecurityRuntimeModule
 from .web_module import WebRuntimeModule
+from .ytdlp_module import YTDLPRuntimeModule
 
 __all__ = [
     "AntiCheatRuntimeModule",
@@ -10,4 +11,5 @@ __all__ = [
     "GameRuntimeModule",
     "SecurityRuntimeModule",
     "WebRuntimeModule",
+    "YTDLPRuntimeModule",
 ]

@@ -56,13 +56,18 @@ def run_source(
         if not (filename.startswith("<") and filename.endswith(">")):
             project_root = find_project_root(Path(filename).resolve().parent)
         configure_python_path_for_project(project_root)
+        resolved_module_roots: list[Path] = []
+        if project_root is not None:
+            resolved_module_roots.append(project_root)
+        if module_roots:
+            resolved_module_roots.extend(Path(root) for root in module_roots)
 
         mode = execution_mode or infer_execution_mode(filename)
         program = compile_source(source, filename=filename, execution_mode=mode)
         interpreter = Interpreter(
             output_stream=None if not emit_stdout else sys.stdout,
             script_path=filename,
-            module_roots=[Path(root) for root in module_roots] if module_roots else None,
+            module_roots=resolved_module_roots if resolved_module_roots else None,
             memory_mode=memory_mode,
             execution_mode=mode,
         )

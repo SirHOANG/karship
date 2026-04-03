@@ -19,7 +19,9 @@ from .package_manager import (
     find_project_root,
     init_project,
     install_package,
+    is_native_package_name,
     load_project_config,
+    native_package_summaries,
     remove_package,
 )
 from .runtime import Interpreter
@@ -54,6 +56,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
     subparsers.add_parser("mem", help="Show adaptive hardware + memory profile.")
     subparsers.add_parser("doctor", help="Run diagnostics for Karship runtime and environment.")
+    subparsers.add_parser("native", help="List built-in native .ksharp packages.")
 
     init_parser = subparsers.add_parser("init", help="Create a new Karship project.")
     init_parser.add_argument("path", nargs="?", default=".", help="Project directory.")
@@ -71,6 +74,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--project",
         help=f"Project root path containing {CONFIG_FILENAME}.",
     )
+    install_parser.add_argument(
+        "--native-only",
+        action="store_true",
+        help="For native .ksharp packages, skip Python bridge dependency installation.",
+    )
 
     remove_parser = subparsers.add_parser("remove", help="Remove a package (local by default).")
     remove_parser.add_argument("package", help="Package name to remove.")
@@ -83,6 +91,32 @@ def build_arg_parser() -> argparse.ArgumentParser:
     remove_parser.add_argument(
         "--project",
         help=f"Project root path containing {CONFIG_FILENAME}.",
+    )
+    remove_parser.add_argument(
+        "--keep-python-bridge",
+        action="store_true",
+        help="For native .ksharp packages, keep Python bridge dependencies installed.",
+    )
+
+    uninstall_parser = subparsers.add_parser(
+        "uninstall",
+        help="Alias of remove. Uninstall a package (local by default).",
+    )
+    uninstall_parser.add_argument("package", help="Package name to uninstall.")
+    uninstall_parser.add_argument(
+        "--global",
+        dest="global_install",
+        action="store_true",
+        help="Uninstall from global Python environment instead of local project.",
+    )
+    uninstall_parser.add_argument(
+        "--project",
+        help=f"Project root path containing {CONFIG_FILENAME}.",
+    )
+    uninstall_parser.add_argument(
+        "--keep-python-bridge",
+        action="store_true",
+        help="For native .ksharp packages, keep Python bridge dependencies installed.",
     )
 
     return parser
@@ -151,9 +185,10 @@ def command_run(args: argparse.Namespace) -> int:
 
 def command_build(args: argparse.Namespace) -> int:
     target = Path(args.target).resolve()
-    project_root = _resolve_project_root_for_command(
-        script_hint=target if target.is_file() else None
-    ) or (target.parent if target.is_file() else target)
+    if target.is_file():
+        project_root = _resolve_project_root_for_command(script_hint=target) or target.parent
+    else:
+        project_root = find_project_root(target) or target
 
     try:
         files = _collect_source_files(target)
@@ -236,6 +271,15 @@ def command_doctor() -> int:
     return 0
 
 
+def command_native() -> int:
+    payload = {
+        "count": len(native_package_summaries()),
+        "packages": native_package_summaries(),
+    }
+    _emit_json(payload)
+    return 0
+
+
 def command_init(args: argparse.Namespace) -> int:
     try:
         result = init_project(args.path, name=args.name)
@@ -248,7 +292,12 @@ def command_init(args: argparse.Namespace) -> int:
 
 def command_install(args: argparse.Namespace) -> int:
     project_root = _resolve_project_root_for_command(explicit_project=args.project)
-    if not args.global_install and project_root is None:
+    requested = str(args.package).strip()
+    effective_global = bool(args.global_install)
+    native_global_ok = is_native_package_name(requested)
+    if not effective_global and project_root is None and native_global_ok:
+        effective_global = True
+    if not effective_global and project_root is None:
         print(
             f"Local install requires {CONFIG_FILENAME}. Run 'kar init' first.",
             file=sys.stderr,
@@ -261,8 +310,13 @@ def command_install(args: argparse.Namespace) -> int:
         result = install_package(
             args.package,
             project_root=project_root,
-            global_install=bool(args.global_install),
+            global_install=effective_global,
+            install_python_bridge=not bool(args.native_only),
         )
+        if native_global_ok and not bool(args.global_install) and effective_global:
+            result["note"] = (
+                f"No {CONFIG_FILENAME} detected. Installed native package globally."
+            )
         _emit_json({"status": "installed", **result})
         return 0
     except PackageManagerError as exc:
@@ -272,7 +326,12 @@ def command_install(args: argparse.Namespace) -> int:
 
 def command_remove(args: argparse.Namespace) -> int:
     project_root = _resolve_project_root_for_command(explicit_project=args.project)
-    if not args.global_install and project_root is None:
+    requested = str(args.package).strip()
+    effective_global = bool(args.global_install)
+    native_global_ok = is_native_package_name(requested)
+    if not effective_global and project_root is None and native_global_ok:
+        effective_global = True
+    if not effective_global and project_root is None:
         print(
             f"Local remove requires {CONFIG_FILENAME}. Run inside a Karship project.",
             file=sys.stderr,
@@ -285,8 +344,13 @@ def command_remove(args: argparse.Namespace) -> int:
         result = remove_package(
             args.package,
             project_root=project_root,
-            global_install=bool(args.global_install),
+            global_install=effective_global,
+            remove_python_bridge=not bool(args.keep_python_bridge),
         )
+        if native_global_ok and not bool(args.global_install) and effective_global:
+            result["note"] = (
+                f"No {CONFIG_FILENAME} detected. Removed native package from global install."
+            )
         _emit_json({"status": "removed", **result})
         return 0
     except PackageManagerError as exc:
@@ -314,11 +378,15 @@ def main(argv: list[str] | None = None) -> int:
         return command_mem()
     if args.command == "doctor":
         return command_doctor()
+    if args.command == "native":
+        return command_native()
     if args.command == "init":
         return command_init(args)
     if args.command == "install":
         return command_install(args)
     if args.command == "remove":
+        return command_remove(args)
+    if args.command == "uninstall":
         return command_remove(args)
 
     print(f"Unknown command: {args.command}", file=sys.stderr)

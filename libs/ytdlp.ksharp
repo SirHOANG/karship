@@ -1,0 +1,38 @@
+# ytdlp.ksharp
+# Native Karship package for extracting playable audio streams with yt-dlp.
+# This package is for legitimate playback workflows and follows platform/usage rules.
+
+lock YTDLP_KSHARP_VERSION = "0.1.0"
+
+forge ytdlp_info() {
+    return "ytdlp.ksharp " + YTDLP_KSHARP_VERSION
+}
+
+forge ytdlp_profile() {
+    return ytdlp.profile()
+}
+
+forge ytdlp_set_cookie_file(path) {
+    return ytdlp.set_cookie_file(path)
+}
+
+forge ytdlp_clear_cookie_file() {
+    ytdlp.clear_cookie_file()
+    return true
+}
+
+forge ytdlp_search_count(count) {
+    return ytdlp.set_search_count(count)
+}
+
+forge ytdlp_stream(query) {
+    return ytdlp.stream(query)
+}
+
+forge ytdlp_stream_url(query) {
+    return ytdlp.stream_url(query)
+}
+
+forge ytdlp_tracks(query, limit) {
+    return ytdlp.tracks(query, limit)
+}

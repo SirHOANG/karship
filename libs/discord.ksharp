@@ -1,0 +1,86 @@
+# discord.ksharp
+# Native Karship package for Discord bots.
+# Provides K# wrappers around runtime discord bridge, intents, scopes, and voice/music helpers.
+# For URL music playback, install ytdlp.ksharp and use discord_music_url.
+
+lock DISCORD_KSHARP_VERSION = "0.1.0"
+
+forge discord_package_info() {
+    return "discord.ksharp " + DISCORD_KSHARP_VERSION
+}
+
+forge discord_create(prefix) {
+    let bot = discord.create(prefix)
+    bot.scope("bot")
+    bot.scope("applications.commands")
+    bot.intent("guilds", true)
+    bot.intent("guild_messages", true)
+    bot.intent("message_content", true)
+    return bot
+}
+
+forge discord_on(bot, event_name, handler) {
+    if event_name == "ready" {
+        bot.on_ready(handler)
+        return true
+    }
+    if event_name == "message" {
+        bot.on_message(handler)
+        return true
+    }
+    spark("discord_on unknown event:", event_name)
+    return false
+}
+
+forge discord_command(bot, name, handler) {
+    bot.command(name, handler)
+    return true
+}
+
+forge discord_enable_voice(bot) {
+    bot.intent("voice_states", true)
+    bot.scope("voice")
+    return true
+}
+
+forge discord_scope_all(bot) {
+    bot.scope_all()
+    return bot.scopes()
+}
+
+forge discord_intent_all(bot) {
+    bot.intent_all()
+    return bot.intents()
+}
+
+forge discord_portal_checklist(bot) {
+    return bot.portal_checklist()
+}
+
+forge discord_music(bot, name, audio_path) {
+    bot.music(name, audio_path)
+    return true
+}
+
+forge discord_music_url(bot, name) {
+    bot.music_url(name)
+    return true
+}
+
+forge discord_music_url_default(bot, name, fallback_query) {
+    bot.music_url(name, fallback_query)
+    return true
+}
+
+forge discord_set_cookie_file(bot, cookie_file_path) {
+    bot.set_cookie_file(cookie_file_path)
+    return true
+}
+
+forge discord_ytdlp_resolve(bot, query) {
+    return bot.ytdlp_resolve(query)
+}
+
+forge discord_invite(bot, client_id, permissions) {
+    return bot.invite_url(client_id, permissions)
+}

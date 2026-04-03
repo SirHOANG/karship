@@ -1,0 +1,44 @@
+use "discord.ksharp"
+use "ytdlp.ksharp"
+
+# This file defines reusable K# functions for building music bots.
+# It does not run a bot by itself.
+
+forge music_runtime_profile() {
+    return ytdlp_profile()
+}
+
+forge music_prepare_bot(prefix) {
+    let bot = discord_create(prefix)
+    discord_enable_voice(bot)
+    bot.intent("message_content", true)
+    bot.intent("guild_messages", true)
+    bot.intent("voice_states", true)
+    return bot
+}
+
+forge music_enable_prefix_play(bot) {
+    # Prefix usage: !play <url-or-keywords>
+    discord_music_url(bot, "play")
+    return true
+}
+
+forge music_enable_slash_play(bot) {
+    # Slash usage: /play <url>
+    # Slash command is auto-registered by discord runtime when music_url is enabled.
+    discord_music_url(bot, "play")
+    return true
+}
+
+forge music_resolve(query) {
+    return ytdlp_stream(query)
+}
+
+forge music_stream_url(query) {
+    return ytdlp_stream_url(query)
+}
+
+forge music_cookie_file(path) {
+    ytdlp_set_cookie_file(path)
+    return true
+}

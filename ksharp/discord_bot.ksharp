@@ -1,0 +1,57 @@
+use "discord.ksharp"
+use "ytdlp.ksharp"
+
+# Install package first:
+# kar init .
+# kar install discord.ksharp
+
+if memory.profile()["total_ram_gb"] <= 8 {
+    memory.set_mode("eco")
+} else {
+    memory.set_mode("balanced")
+}
+
+lock BOT_TOKEN = "YOUR_BOT_TOKEN"
+lock CLIENT_ID = "YOUR_APPLICATION_CLIENT_ID"
+
+let bot = discord_create("!")
+discord_enable_voice(bot)
+
+forge on_ready() {
+    spark("Discord bot online with Karship K#")
+    spark("Invite URL:", discord_invite(bot, CLIENT_ID, 8))
+}
+
+forge on_message(content) {
+    spark("message event:", content)
+}
+
+forge ping_cmd(content) {
+    return "pong"
+}
+
+forge hello_cmd(content) {
+    return "hello from Karship K#"
+}
+
+discord_on(bot, "ready", on_ready)
+discord_on(bot, "message", on_message)
+discord_command(bot, "ping", ping_cmd)
+discord_command(bot, "hello", hello_cmd)
+
+# Music command example. By default: !playmusic
+# Or override path dynamically: !playmusic C:\music\song.mp3
+discord_music(bot, "playmusic", "sample.mp3")
+
+# URL music command for YouTube/news/radio-like streams:
+# Prefix: !play <url or keywords>
+# Slash:  /play <url>
+discord_music_url(bot, "play")
+
+# Optional: restricted content troubleshooting with exported cookies.
+# ytdlp_set_cookie_file("cookies.txt")
+
+spark("ytdlp profile:", ytdlp_profile())
+spark("last ytdlp error:", ytdlp_last_error())
+
+bot.run(BOT_TOKEN)
