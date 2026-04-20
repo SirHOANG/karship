@@ -1,24 +1,45 @@
 [build-system]
-requires = ["setuptools>=69", "wheel"]
+requires = ["setuptools>=65.5.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "karship-ksharp"
+name = "karship"
 version = "0.1.0"
-description = "Karship K# reference interpreter and tooling."
-readme = "ksharp/README.md"
+description = "KSharp programming language interpreter and Karship CLI."
+readme = "README.md"
 requires-python = ">=3.11"
 authors = [
   { name = "Karship Team" }
 ]
 license = { text = "MIT" }
 keywords = ["karship", "ksharp", "language", "interpreter", "k#"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Software Development :: Interpreters",
+  "Topic :: Software Development :: Compilers"
+]
 dependencies = []
+
+[project.optional-dependencies]
+build = [
+  "build>=1.2.2",
+  "pyinstaller>=6.6",
+]
 
 [project.scripts]
 ksharp = "ksharp.ksharp_cli:main"
-kar = "ksharp.kar_cli:main"
+kar = "ksharp.cli:main"
+
+[tool.setuptools]
+license-files = ["LICENSE"]
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["ksharp*"]
+include = ["karship", "ksharp*", "runtime*"]
+exclude = ["karship.ksharp*", "karship.tests*"]

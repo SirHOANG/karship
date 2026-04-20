@@ -1,0 +1,3 @@
+[console_scripts]
+kar = ksharp.cli:main
+ksharp = ksharp.ksharp_cli:main

@@ -82,6 +82,17 @@ ksharp ksharp/example.ksharp
 kar --version
 ```
 
+Global install for all users:
+
+```bash
+pip install karship
+```
+
+Important:
+- `pip install karship` only works after the package has been published to PyPI.
+- If PyPI says `No matching distribution found for karship`, the project has not been released there yet.
+- Until then, users can install from source with `pip install .` or `pip install -e .`.
+
 Memory profiles in CLI:
 
 ```bash
@@ -216,6 +227,36 @@ For all users on the same computer (run PowerShell as Administrator):
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools/install-kar-cli.ps1 -AllUsers
+```
+
+## Publish To PyPI
+
+To make `pip install karship` work for everyone globally, the package must be published to PyPI.
+
+This repository now includes:
+- `pyproject.toml` with project name `karship`
+- `.github/workflows/publish-to-pypi.yml` for build + publish
+- `LICENSE` for distribution metadata
+
+Recommended release flow:
+
+1. Create accounts on TestPyPI and PyPI.
+2. Configure Trusted Publishing for this GitHub repository:
+   - TestPyPI environment name: `testpypi`
+   - PyPI environment name: `pypi`
+3. Run the GitHub Actions workflow manually to publish to TestPyPI first.
+4. Verify install:
+
+```bash
+pip install --index-url https://test.pypi.org/simple/ --no-deps karship
+kar --version
+```
+
+5. Create and push a version tag like `v0.1.0` to publish to real PyPI.
+6. After that, all users can install globally with:
+
+```bash
+pip install karship
 ```
 
 ## Library Pattern

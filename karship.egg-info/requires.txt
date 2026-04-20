@@ -1,0 +1,4 @@
+
+[build]
+build>=1.2.2
+pyinstaller>=6.6

@@ -1,10 +1,13 @@
 import unittest
 from pathlib import Path
 import tempfile
+import io
+from contextlib import redirect_stdout
 from unittest.mock import patch
 import sys
 import types
 
+from ksharp.cli import main as kar_entry_main
 from ksharp.kar_cli import main as kar_main
 from ksharp.ksharp_interpreter import KSharpError, run_file, run_source
 from ksharp.modules.discord_module import DiscordBotBridge
@@ -18,9 +21,37 @@ from ksharp.package_manager import (
     remove_package,
 )
 from ksharp.runtime import Interpreter
+from ksharp.lexer import Lexer
+from ksharp.parser import Parser
+from karship import Interpreter as PublicInterpreter
+from karship import Lexer as PublicLexer
+from karship import Parser as PublicParser
 
 
 class KSharpLanguageTests(unittest.TestCase):
+    def test_top_level_package_exports_public_api(self) -> None:
+        self.assertIs(PublicLexer, Lexer)
+        self.assertIs(PublicParser, Parser)
+        self.assertIs(PublicInterpreter, Interpreter)
+
+    def test_ksharp_cli_entrypoint_delegates_to_kar_cli(self) -> None:
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            exit_code = kar_entry_main(["--version"])
+        self.assertEqual(exit_code, 0)
+        self.assertIn("karship-ksharp 0.1.0", stdout.getvalue())
+
+    def test_kar_cli_accepts_script_path_without_run_subcommand(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            script_path = Path(temp_dir) / "hello.ksharp"
+            script_path.write_text('spark("hello")\n', encoding="utf-8")
+            stdout = io.StringIO()
+            with redirect_stdout(stdout):
+                exit_code = kar_main([str(script_path)])
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(stdout.getvalue().strip(), "hello")
+
     def test_spark_and_function(self) -> None:
         source = """
 let greeting = "Karship"
