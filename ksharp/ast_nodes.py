@@ -167,6 +167,11 @@ class IndexSetExpr(Expr):
 
 
 @dataclass(slots=True)
+class MapLiteral(Expr):
+    entries: list[tuple[Expr, Expr]]
+
+
+@dataclass(slots=True)
 class ListLiteral(Expr):
     elements: list[Expr]
 

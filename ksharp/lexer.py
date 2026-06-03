@@ -83,7 +83,7 @@ class Lexer:
                 self._add_token("SLASH_EQUAL", "/=")
                 return
             if self._match("/"):
-                self._consume_line_comment()
+                self._add_token("FLOOR_DIV", "//")
                 return
             if self._match("*"):
                 self._consume_block_comment()

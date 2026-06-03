@@ -57,6 +57,7 @@ from .ast_nodes import (
     ListLiteral,
     Literal,
     Logical,
+    MapLiteral,
     NewExpr,
     Program,
     ReturnStmt,
@@ -780,6 +781,12 @@ class Interpreter:
                     f"Cannot set index '{index}' on '{type(target).__name__}'."
                 ) from exc
 
+        if isinstance(expr, MapLiteral):
+            result: dict[Any, Any] = {}
+            for key_expr, value_expr in expr.entries:
+                result[self.evaluate(key_expr)] = self.evaluate(value_expr)
+            return result
+
         if isinstance(expr, ListLiteral):
             return [self.evaluate(item) for item in expr.elements]
 
@@ -852,6 +859,12 @@ class Interpreter:
             if right == 0:
                 raise self.runtime_error("Division by zero.")
             return left / right
+        if operator == "//":
+            self.require_number(left, "'//'" )
+            self.require_number(right, "'//'" )
+            if right == 0:
+                raise self.runtime_error("Division by zero.")
+            return left // right
         if operator == "%":
             self.require_number(left, "'%'")
             self.require_number(right, "'%'")

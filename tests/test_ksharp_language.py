@@ -77,6 +77,15 @@ spark(total)
         result = run_source(source, filename="<test>", emit_stdout=False)
         self.assertEqual(result.output, ["10"])
 
+    def test_map_literals_and_floor_division(self) -> None:
+        source = """
+let values = {"alpha": 1, "beta": 2}
+spark(values["alpha"])
+spark(7 // 2)
+"""
+        result = run_source(source, filename="<test>", emit_stdout=False)
+        self.assertEqual(result.output, ["1", "3"])
+
     def test_lock_prevents_reassignment(self) -> None:
         source = """
 lock token = "abc"

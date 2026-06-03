@@ -20,6 +20,7 @@ from .ast_nodes import (
     ListLiteral,
     Literal,
     Logical,
+    MapLiteral,
     NewExpr,
     Program,
     ReturnStmt,
@@ -307,7 +308,7 @@ class Parser:
 
     def _factor(self) -> Expr:
         expr = self._unary()
-        while self._match("STAR", "SLASH", "PERCENT"):
+        while self._match("STAR", "SLASH", "FLOOR_DIV", "PERCENT"):
             operator = self._previous().lexeme
             right = self._unary()
             expr = Binary(left=expr, operator=operator, right=right)
@@ -370,6 +371,18 @@ class Parser:
             expr = self._expression()
             self._consume("RIGHT_PAREN", "Expected ')' after expression.")
             return Grouping(expr=expr)
+        if self._match("LEFT_BRACE"):
+            entries: list[tuple[Expr, Expr]] = []
+            if not self._check("RIGHT_BRACE"):
+                while True:
+                    key = self._expression()
+                    self._consume("COLON", "Expected ':' in map literal.")
+                    value = self._expression()
+                    entries.append((key, value))
+                    if not self._match("COMMA"):
+                        break
+            self._consume("RIGHT_BRACE", "Expected '}' after map literal.")
+            return MapLiteral(entries=entries)
         if self._match("LEFT_BRACKET"):
             elements: list[Expr] = []
             if not self._check("RIGHT_BRACKET"):
