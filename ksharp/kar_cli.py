@@ -1,12 +1,28 @@
 from __future__ import annotations
 
 import argparse
+import importlib
+import importlib.util
 import json
+import pathlib
 import platform
 import sys
 import time
 from pathlib import Path
 from typing import Any
+
+if "runtime" not in sys.modules:
+    _runtime_path = pathlib.Path(__file__).parent.parent / "runtime"
+    if _runtime_path.exists():
+        spec = importlib.util.spec_from_file_location(
+            "runtime",
+            str(_runtime_path / "__init__.py"),
+            submodule_search_locations=[str(_runtime_path)],
+        )
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules["runtime"] = mod
+        assert spec.loader is not None
+        spec.loader.exec_module(mod)
 
 from runtime.system_detection import SystemDetector
 

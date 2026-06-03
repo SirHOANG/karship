@@ -15,6 +15,7 @@ from .ast_nodes import (
     Grouping,
     IfStmt,
     IndexExpr,
+    IndexSetExpr,
     LambdaExpr,
     ListLiteral,
     Literal,
@@ -230,7 +231,38 @@ class Parser:
                 return Assign(name=expr.name, value=value)
             if isinstance(expr, GetExpr):
                 return SetExpr(target=expr.target, name=expr.name, value=value)
+            if isinstance(expr, IndexExpr):
+                return IndexSetExpr(target=expr.target, index=expr.index, value=value)
             raise self._error(equals, "Invalid assignment target.")
+
+        compound_operators = {
+            "PLUS_EQUAL": "+",
+            "MINUS_EQUAL": "-",
+            "STAR_EQUAL": "*",
+            "SLASH_EQUAL": "/",
+        }
+        if self._match(*compound_operators):
+            operator_token = self._previous()
+            value = self._assignment()
+            operator = compound_operators[operator_token.type]
+            if isinstance(expr, Variable):
+                return Assign(
+                    name=expr.name,
+                    value=Binary(left=Variable(expr.name), operator=operator, right=value),
+                )
+            if isinstance(expr, GetExpr):
+                return SetExpr(
+                    target=expr.target,
+                    name=expr.name,
+                    value=Binary(left=GetExpr(target=expr.target, name=expr.name), operator=operator, right=value),
+                )
+            if isinstance(expr, IndexExpr):
+                return IndexSetExpr(
+                    target=expr.target,
+                    index=expr.index,
+                    value=Binary(left=IndexExpr(target=expr.target, index=expr.index), operator=operator, right=value),
+                )
+            raise self._error(operator_token, "Invalid assignment target.")
         return expr
 
     def _or(self) -> Expr:

@@ -1,11 +1,28 @@
 from __future__ import annotations
 
+import importlib
+import importlib.util
 import json
+import pathlib
 import sqlite3
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
+
+if "runtime" not in sys.modules:
+    _runtime_path = pathlib.Path(__file__).parent.parent / "runtime"
+    if _runtime_path.exists():
+        spec = importlib.util.spec_from_file_location(
+            "runtime",
+            str(_runtime_path / "__init__.py"),
+            submodule_search_locations=[str(_runtime_path)],
+        )
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules["runtime"] = mod
+        assert spec.loader is not None
+        spec.loader.exec_module(mod)
 
 from runtime.memory import MemoryManager, MemoryModule, MemoryRuntimeError
 from runtime.monitor import RuntimeMonitor
@@ -35,6 +52,7 @@ from .ast_nodes import (
     Grouping,
     IfStmt,
     IndexExpr,
+    IndexSetExpr,
     LambdaExpr,
     ListLiteral,
     Literal,
@@ -750,6 +768,18 @@ class Interpreter:
             value = self.evaluate(expr.value)
             return self.set_member(target, expr.name, value)
 
+        if isinstance(expr, IndexSetExpr):
+            target = self.evaluate(expr.target)
+            index = self.evaluate(expr.index)
+            value = self.evaluate(expr.value)
+            try:
+                target[index] = value
+                return value
+            except Exception as exc:
+                raise self.runtime_error(
+                    f"Cannot set index '{index}' on '{type(target).__name__}'."
+                ) from exc
+
         if isinstance(expr, ListLiteral):
             return [self.evaluate(item) for item in expr.elements]
 
@@ -830,13 +860,20 @@ class Interpreter:
             return left == right
         if operator == "!=":
             return left != right
-        if operator == ">":
-            return left > right
-        if operator == ">=":
-            return left >= right
-        if operator == "<":
-            return left < right
-        if operator == "<=":
+        if operator in (">", ">=", "<", "<="):
+            if not (isinstance(left, (int, float)) and isinstance(right, (int, float))) and not (
+                isinstance(left, str) and isinstance(right, str)
+            ):
+                raise self.runtime_error(
+                    f"Operator '{operator}' requires two numbers or two strings, "
+                    f"got {type(left).__name__} and {type(right).__name__}."
+                )
+            if operator == ">":
+                return left > right
+            if operator == ">=":
+                return left >= right
+            if operator == "<":
+                return left < right
             return left <= right
         raise self.runtime_error(f"Unknown binary operator '{operator}'.")
 
@@ -852,14 +889,16 @@ class Interpreter:
                 return callee(*args)
             except Exception as exc:
                 raise self.runtime_error(
-                    f"Invalid arguments for native function '{callee.name}'."
+                    f"Native function '{callee.name}' raised {type(exc).__name__}: {exc}"
                 ) from exc
         if callable(callee):
             try:
                 return callee(*args)
             except Exception as exc:
                 name = getattr(callee, "__name__", type(callee).__name__)
-                raise self.runtime_error(f"Invalid arguments for callable '{name}'.") from exc
+                raise self.runtime_error(
+                    f"Callable '{name}' raised {type(exc).__name__}: {exc}"
+                ) from exc
         raise self.runtime_error(f"Object of type '{type(callee).__name__}' is not callable.")
 
     def index(self, target: Any, index: Any) -> Any:

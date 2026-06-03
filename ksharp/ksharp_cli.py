@@ -38,18 +38,28 @@ def _print_ast(script_path: str, source: str) -> None:
 
 def _run_repl() -> int:
     print("Karship K# REPL. Type :quit to exit.")
+    buffer: list[str] = []
+    depth = 0
     while True:
         try:
-            line = input("k#> ")
+            prompt = "k#> " if depth == 0 else "...  "
+            line = input(prompt)
         except EOFError:
             print()
             return 0
-        if not line.strip():
+        if not line.strip() and depth == 0:
             continue
         if line.strip() == ":quit":
             return 0
+        buffer.append(line)
+        depth += line.count("{") - line.count("}")
+        depth = max(depth, 0)
+        if depth > 0:
+            continue
+        source = "\n".join(buffer)
+        buffer.clear()
         try:
-            result = run_source(line, filename="<repl>", emit_stdout=True)
+            result = run_source(source, filename="<repl>", emit_stdout=True)
             if result.value is not None:
                 print(result.value)
         except KSharpError as exc:

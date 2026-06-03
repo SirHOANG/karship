@@ -39,6 +39,20 @@ class Lexer:
             self._consume_line_comment()
             return
 
+        if char == "+":
+            if self._match("="):
+                self._add_token("PLUS_EQUAL", "+=")
+            else:
+                self._add_token("PLUS", "+")
+            return
+
+        if char == "*":
+            if self._match("="):
+                self._add_token("STAR_EQUAL", "*=")
+            else:
+                self._add_token("STAR", "*")
+            return
+
         single_char_tokens = {
             "(": "LEFT_PAREN",
             ")": "RIGHT_PAREN",
@@ -48,8 +62,6 @@ class Lexer:
             "]": "RIGHT_BRACKET",
             ",": "COMMA",
             ".": "DOT",
-            "+": "PLUS",
-            "*": "STAR",
             "%": "PERCENT",
             ";": "SEMICOLON",
             ":": "COLON",
@@ -59,11 +71,17 @@ class Lexer:
             return
 
         if char == "-":
+            if self._match("="):
+                self._add_token("MINUS_EQUAL", "-=")
+                return
             token_type = "ARROW" if self._match(">") else "MINUS"
             self._add_token(token_type, "->" if token_type == "ARROW" else "-")
             return
 
         if char == "/":
+            if self._match("="):
+                self._add_token("SLASH_EQUAL", "/=")
+                return
             if self._match("/"):
                 self._consume_line_comment()
                 return
@@ -127,6 +145,11 @@ class Lexer:
         value_chars: list[str] = []
         while not self._is_at_end():
             char = self._advance()
+            if char == "\n":
+                raise self._error(
+                    "Unterminated string literal (newline not allowed in single-line string). "
+                    "Use '\\n' escape for a newline character."
+                )
             if char == quote:
                 lexeme = self.source[self._start : self._current]
                 self._add_token("STRING", lexeme, "".join(value_chars))

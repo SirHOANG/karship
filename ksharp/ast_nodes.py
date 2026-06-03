@@ -160,6 +160,13 @@ class IndexExpr(Expr):
 
 
 @dataclass(slots=True)
+class IndexSetExpr(Expr):
+    target: Expr
+    index: Expr
+    value: Expr
+
+
+@dataclass(slots=True)
 class ListLiteral(Expr):
     elements: list[Expr]
 
